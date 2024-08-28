@@ -48,7 +48,7 @@ stages:
         publishWebProjects: True
         zipAfterPublish: false
         arguments: '--configuration $(BuildConfiguration) --output $(Build.ArtifactStagingDirectory)'
-        
+
     - task: Docker@2
       displayName: Build and push an image to container registry
       inputs:
@@ -60,13 +60,14 @@ stages:
         tags: |
           $(tag)
           latest
-
-#Here a task has been added to publish pipeline artifacts, so they are available for the release pipeline
-#This is performed to ensure the Manifest files are persistent after the build process so , the release pipeline could utilize them 
-# Why ? : Because source files are destroyed once the build has been completed in the Hosted Agent
-
-    - task: PublishPipelineArtifact@1
+# Deploying to Kubernetes Cluster         
+    - task: KubernetesManifest@1
       inputs:
-        targetPath: '$(Pipeline.Workspace)'
-        artifact: 'sourcefiles'
-        publishLocation: 'pipeline'
+        action: 'deploy'
+        connectionType: 'kubernetesServiceConnection'
+        kubernetesServiceConnection: 'k8scluster-default'
+        namespace: 'default'
+        manifests: | 
+           $(Build.SourcesDirectory)/sqlapp/Manifests/app.yml
+           $(Build.SourcesDirectory)/sqlapp/Manifests/service.yml
+           
