@@ -38,3 +38,10 @@ stages:
         tags: |
           $(tag)
           latest
+    - task: PublishPipelineArtifact@1
+      displayName: Publish the source files into Azure Pipeline storage
+      inputs:
+        targetPath: '$(Pipeline.Workspace)'
+        artifact: 'sourcefiles'
+        publishLocation: 'pipeline'   
+# Deployment Stage
