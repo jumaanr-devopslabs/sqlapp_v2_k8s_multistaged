@@ -42,6 +42,7 @@ stages:
         arguments: '--configuration $(buildConfiguration)'
 
     - task: DotNetCoreCLI@2
+      displayName: Publishing Build to Artifact Staging Directory
       inputs:
         command: publish
         publishWebProjects: True
@@ -59,3 +60,12 @@ stages:
           $(tag)
           latest
             
+    - task: KubernetesManifest@1
+      inputs:
+        action: 'deploy'
+        connectionType: 'kubernetesServiceConnection'
+        kubernetesServiceConnection: 'k8scluster-default'
+        namespace: 'default'
+        manifests: | 
+           $(Build.SourcesDirectory)/sqlapp/Manifests/app.yml
+           $(Build.SourcesDirectory)/sqlapp/Manifests/service.yml
