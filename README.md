@@ -1,72 +1,194 @@
-# sqlapp_v2_docker
-About this application :
+# Explanation of the Azure Pipeline YAML File
 
-This is an ASP .NET Core app that uses runtime .NET 6.0. This application retrieve a product table from a Database hosted in Azure
-Overall this lap
+This Azure Pipeline YAML file is designed to automate the process of building and pushing a Docker image to an Azure Container Registry (ACR), as well as deploying it to a Kubernetes cluster. The file is structured into stages, jobs, and tasks, each performing specific operations.
 
-First we create a build pipeline and publish the content to ArtifactStaingDirectory.
-Then, using the Dockerfile residing in the repository, a Docker image is built. 
-Once the docker image is built, we push the image to Azure Container Registry, creating a repository. 
+#### 1. **Trigger**
+```yaml
+trigger:
+- main
+```
+This section specifies that the pipeline should run automatically whenever there is a commit to the `main` branch.
 
-# sqlapp_v2_debug
+#### 2. **Resources**
+```yaml
+resources:
+- repo: self
+```
+This defines that the pipeline uses the repository where the pipeline is defined.
 
-Created a new branch for the application, for debugging to find out why we instruct docker to get the content from Build.ArtifactStagingDirectory/sqlapp directory to get the published content.
-The output shows that the actual sqlapp.dll file resides inside the sqlapp directory under Build.ArtifactStagingDirectory.
-Refer to the respective pipeline file as azure-pipeline-debug.yaml
+#### 3. **Variables**
+```yaml
+variables:
+  dockerRegistryServiceConnection: 'b25b4f04-00aa-4787-a48a-168193cb19cf'
+  imageRepository: 'sqlappdocker'
+  containerRegistry: 'azcrazdevopseastus.azurecr.io'
+  dockerfilePath: '$(Build.SourcesDirectory)/sqlapp/Dockerfile'
+  tag: '$(Build.BuildId)'
+  group: dockervariablegroup
+  vmImageName: 'ubuntu-latest'
+```
+- **dockerRegistryServiceConnection**: The service connection ID for the Azure Container Registry.
+- **imageRepository**: The name of the Docker image repository.
+- **containerRegistry**: The Azure Container Registry URL.
+- **dockerfilePath**: The path to the Dockerfile.
+- **tag**: The tag used for the Docker image, which is based on the build ID.
+- **group**: Specifies a variable group.
+- **vmImageName**: The virtual machine image used by the build agent (Ubuntu).
 
-When you recreate this project, use the same source code, but the pipeline file is azure-pipeline-debug.yaml
-The following code has been added.
+#### 4. **Stages**
+```yaml
+stages:
+- stage: Build
+  displayName: Build and push stage
+  jobs:
+  - job: Build
+    displayName: Build
+    pool:
+      vmImage: $(vmImageName)
+```
+This defines a single stage named `Build`, which contains a job named `Build`. The job runs on an Ubuntu-based build agent.
 
-    - pwsh: |       
-       Get-ChildItem -Path $(Build.ArtifactStagingDirectory)\*.* -Recurse -Force | Out-String -Width 180
-      errorActionPreference: continue
-      displayName: 'List content'
-      continueOnError: true
+#### 5. **Tasks**
+The tasks within the `Build` job perform various actions:
 
-When we are running the Build pipeline, we can see where the actual publish content is saved. 
-![image](https://github.com/user-attachments/assets/a1705b6d-f381-4ef3-b801-cb8b8d1127e8)
+1. **UseDotNet@2**: 
+   ```yaml
+   - task: UseDotNet@2
+     inputs:
+       packageType: 'sdk'
+       version: '6.x'
+   ```
+   - Installs the .NET SDK version 6.x on the agent.
 
-# About azure-pipeline.yaml file
+2. **DotNetCoreCLI@2 (Build)**:
+   ```yaml
+   - task: DotNetCoreCLI@2
+     displayName: Build
+     inputs:
+       command: build
+       projects: '**/*.csproj'
+       arguments: '--configuration $(buildConfiguration)'
+   ```
+   - Builds the .NET projects using the specified configuration.
 
-The YAML file you provided is an Azure Pipeline configuration for building and pushing a Docker image to Azure Container Registry (ACR). Here’s a breakdown of what it does:
+3. **DotNetCoreCLI@2 (Publish)**:
+   ```yaml
+   - task: DotNetCoreCLI@2
+     displayName: Publishing Build to Artifact Staging Directory
+     inputs:
+       command: publish
+       publishWebProjects: True
+       zipAfterPublish: false
+       arguments: '--configuration $(BuildConfiguration) --output $(Build.ArtifactStagingDirectory)'
+   ```
+   - Publishes the build artifacts to the artifact staging directory.
 
-### Key Sections:
+4. **Docker@2**:
+   ```yaml
+   - task: Docker@2
+     displayName: Build and push an image to container registry
+     inputs:
+       command: buildAndPush
+       buildContext: '$(Build.ArtifactStagingDirectory)/sqlapp'
+       repository: $(imageRepository)
+       dockerfile: $(dockerfilePath)
+       containerRegistry: $(dockerRegistryServiceConnection)
+       tags: |
+         $(tag)
+         latest
+   ```
+   - Builds a Docker image from the `Dockerfile` and pushes it to the specified ACR with tags including the build ID and `latest`.
 
-1. **Trigger:**
-   - The pipeline is triggered by changes to the `main` branch of the repository.
+5. **KubernetesManifest@1**:
+   ```yaml
+   - task: KubernetesManifest@1
+     inputs:
+       action: 'deploy'
+       connectionType: 'kubernetesServiceConnection'
+       kubernetesServiceConnection: 'k8scluster-default'
+       namespace: 'default'
+       manifests: | 
+         $(Build.SourcesDirectory)/sqlapp/Manifests/app.yml
+         $(Build.SourcesDirectory)/sqlapp/Manifests/service.yml
+   ```
+   - Deploys the application to a Kubernetes cluster using the specified Kubernetes manifests.
 
-2. **Resources:**
-   - It uses the `self` repository (the same repository where this pipeline is defined).
+---
 
-3. **Variables:**
-   - `dockerRegistryServiceConnection`: This is the service connection ID to connect to Azure Container Registry (ACR).
-   - `imageRepository`: The name of the Docker image repository (`sqlappdocker`).
-   - `containerRegistry`: The URL of the Azure Container Registry (`azcrazdevopseastus.azurecr.io`).
-   - `dockerfilePath`: The path to the Dockerfile located in the `sqlapp` directory.
-   - `tag`: The build ID used as a tag for the Docker image.
-   - `vmImageName`: Specifies the VM image to use for the build agent, which is `ubuntu-latest`.
+### Markdown Version of the YAML File
 
-4. **Stages:**
-   - **Build Stage:**
-     - This stage is responsible for building and pushing the Docker image.
-     - **Jobs:**
-       - **Job Name: `Build`**
-         - Uses an Ubuntu agent (`ubuntu-latest`).
-         - **Steps:**
-           1. **Install .NET SDK:**
-              - Uses the `UseDotNet@2` task to install the .NET SDK version 6.x.
-           2. **Build the .NET Application:**
-              - Uses `DotNetCoreCLI@2` to build all `.csproj` projects in the repository.
-           3. **Publish the .NET Application:**
-              - Publishes the build output to the `$(Build.ArtifactStagingDirectory)` directory.
-           4. **Build and Push Docker Image:**
-              - Uses the `Docker@2` task to build the Docker image from the Dockerfile located in `$(Build.ArtifactStagingDirectory)/sqlapp`.
-              - Pushes the built image to the Azure Container Registry (`azcrazdevopseastus.azurecr.io`).
-              - Tags the image with the build ID and `latest`.
+```yaml
+# Docker
+# Build and push an image to Azure Container Registry
+# https://docs.microsoft.com/azure/devops/pipelines/languages/docker
 
-### Summary:
-- The pipeline builds a .NET application, publishes the output, and then builds a Docker image using the published application.
-- The Docker image is tagged and pushed to Azure Container Registry.
-- The pipeline is triggered by changes to the `main` branch.
+trigger:
+- main
 
-This YAML file automates the process of building and deploying a Docker image for a .NET application to Azure Container Registry.
+resources:
+- repo: self
+
+variables:
+  # Container registry service connection established during pipeline creation
+  dockerRegistryServiceConnection: 'b25b4f04-00aa-4787-a48a-168193cb19cf'
+  imageRepository: 'sqlappdocker'
+  containerRegistry: 'azcrazdevopseastus.azurecr.io'
+  dockerfilePath: '$(Build.SourcesDirectory)/sqlapp/Dockerfile'
+  tag: '$(Build.BuildId)'
+  group: dockervariablegroup
+
+  # Agent VM image name
+  vmImageName: 'ubuntu-latest'
+
+stages:
+- stage: Build
+  displayName: Build and push stage
+  jobs:
+  - job: Build
+    displayName: Build
+    pool:
+      vmImage: $(vmImageName)
+    steps:
+    - task: UseDotNet@2
+      inputs:
+        packageType: 'sdk'
+        version: '6.x'
+
+    - task: DotNetCoreCLI@2
+      displayName: Build
+      inputs:
+        command: build
+        projects: '**/*.csproj'
+        arguments: '--configuration $(buildConfiguration)'
+
+    - task: DotNetCoreCLI@2
+      displayName: Publishing Build to Artifact Staging Directory
+      inputs:
+        command: publish
+        publishWebProjects: True
+        zipAfterPublish: false
+        arguments: '--configuration $(BuildConfiguration) --output $(Build.ArtifactStagingDirectory)'
+    - task: Docker@2
+      displayName: Build and push an image to container registry
+      inputs:
+        command: buildAndPush
+        buildContext: '$(Build.ArtifactStagingDirectory)/sqlapp'
+        repository: $(imageRepository)
+        dockerfile: $(dockerfilePath)
+        containerRegistry: $(dockerRegistryServiceConnection)
+        tags: |
+          $(tag)
+          latest
+            
+    - task: KubernetesManifest@1
+      inputs:
+        action: 'deploy'
+        connectionType: 'kubernetesServiceConnection'
+        kubernetesServiceConnection: 'k8scluster-default'
+        namespace: 'default'
+        manifests: | 
+           $(Build.SourcesDirectory)/sqlapp/Manifests/app.yml
+           $(Build.SourcesDirectory)/sqlapp/Manifests/service.yml
+```
+
+This markdown version keeps the YAML format intact and ready for documentation or sharing purposes.
