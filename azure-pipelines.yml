@@ -21,7 +21,7 @@ variables:
 
 stages:
 - stage: Build
-  displayName: Build and push stage
+  displayName: Build and Push stage
   jobs:
   - job: Build
     displayName: Build
@@ -29,7 +29,7 @@ stages:
       vmImage: $(vmImageName)
     steps:
     - task: Docker@2
-      displayName: Build and push an image to container registry
+      displayName: Build & Push Image to Container Registry
       inputs:
         command: buildAndPush
         repository: $(imageRepository)
@@ -38,10 +38,19 @@ stages:
         tags: |
           $(tag)
           latest
+    - task: KubernetesManifest@1
+      displayName: Deploy Kubernetes Cluster
+      inputs:
+        action: 'deploy'
+        connectionType: 'kubernetesServiceConnection'
+        kubernetesServiceConnection: 'k8scluster-default'
+        namespace: 'default'
+        manifests: | 
+          $(Build.SourcesDirectory)/sqlapp/Manifests/app.yml
+          $(Build.SourcesDirectory)/sqlapp/Manifests/service.yml
     - task: PublishPipelineArtifact@1
-      displayName: Publish the source files into Azure Pipeline storage
+      displayName: Publish Source Files as Pipeline Artifact
       inputs:
         targetPath: '$(Pipeline.Workspace)'
         artifact: 'sourcefiles'
-        publishLocation: 'pipeline'   
-# Deployment Stage
+        publishLocation: 'pipeline'
